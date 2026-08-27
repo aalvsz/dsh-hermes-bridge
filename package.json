@@ -1,7 +1,7 @@
 {
   "name": "@aalvsz/dsh-hermes-bridge",
-  "version": "0.1.0",
-  "description": "Bridge Hermes Agent memory, skills, tools, agents, and automation into DeepSeek Harness.",
+  "version": "0.2.0",
+  "description": "Native adaptive intelligence layer for DeepSeek Harness: memory, skills, /learn, background review, and curator — no Hermes or Python dependency.",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
@@ -9,18 +9,15 @@
   },
   "files": [
     "src",
-    "bridge/hermes_bridge.py",
     "docs",
     "cordis.patch.yml",
     "README.md",
     "LICENSE",
-    "NOTICE",
     "SECURITY.md"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:contract": "node --test test/contract.test.mjs",
-    "test:integration": "node --test test/bridge-protocol.test.mjs test/plugin.test.mjs",
     "check": "node --check src/*.js && node --test test/*.test.mjs",
     "pack:check": "npm pack --dry-run",
     "verify": "npm run check && npm run pack:check"
@@ -28,12 +25,11 @@
   "keywords": [
     "deepseek-harness",
     "dsh-plugin",
-    "hermes-agent",
-    "cordis",
-    "agent",
+    "adaptive-intelligence",
     "memory",
     "skills",
-    "mcp"
+    "agent",
+    "cordis"
   ],
   "author": "Ander Alvarez",
   "license": "MIT",
@@ -47,9 +43,6 @@
   "homepage": "https://github.com/aalvsz/dsh-hermes-bridge#readme",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
-  },
-  "dependencies": {
-    "@deepseek-ai/schemastery": "3.18.1"
   },
   "dsh": {
     "bundle": {

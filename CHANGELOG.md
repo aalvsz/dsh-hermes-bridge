@@ -1,11 +1,16 @@
 # Changelog
 
-All notable changes follow Semantic Versioning.
+## 0.2.0 - 2026-08-27
+
+- Native JavaScript reimplementation: no Hermes or Python dependency.
+- Persistent memory (MEMORY.md/USER.md) with bounded limits, atomic operations, and per-session frozen snapshots.
+- Skill catalog with create/read/patch/delete, categories, and restricted file operations.
+- `/hermes-learn` skill authoring workflow.
+- Optional background review and curator as DSH-native subagent orchestration.
+- Capability diagnostics and status tool.
 
 ## 0.1.0 - 2026-08-27
 
-- Share Hermes memory and skills with DeepSeek Harness.
-- Mirror the live Hermes tool registry, including configured plugin and MCP tools, under a collision-safe namespace.
-- Add full embedded Hermes Agent delegation.
-- Add `/hermes-learn`, background-review integration, curator opt-in, capability diagnostics, and DSH skill-catalog links.
-- Add request-isolated bounded JSON transport, explicit environment/cwd boundaries, default DSH approval gates, private-state permission checks, portable runtime discovery, tests, pinned CI, security documentation, and package metadata.
+- Bridge to real Hermes Python runtime via subprocess JSON-lines protocol.
+- Dynamic tool mirroring, full-agent delegation, approval gates.
+- Superseded by native v0.2.0.

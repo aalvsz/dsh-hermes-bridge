@@ -3,11 +3,10 @@
       name: '@aalvsz/dsh-hermes-bridge'
       config:
         enabled: true
-        toolsets:
-          - all
-        mirrorTools: true
-        delegateAgent: true
-        requireApproval: true
-        syncSkills: false
+        namespace: hermes
         backgroundReview: false
         curator: false
+        memoryCharLimit: 2200
+        userCharLimit: 1375
+        memoryNudgeInterval: 10
+        skillNudgeInterval: 10

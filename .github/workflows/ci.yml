@@ -24,41 +24,8 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
-      - run: npm run test:contract
+      - run: npm test
       - run: node --check src/index.js
-      - run: node --check src/bridge-client.js
+      - run: node --check src/memory.js
+      - run: node --check src/skills.js
       - run: npm run pack:check
-
-  hermes-integration:
-    name: Hermes 0.20.5 integration
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: 24
-          cache: npm
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.11'
-      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
-        with:
-          enable-cache: false
-      - run: npm ci
-      - name: Check out tested Hermes Agent commit
-        env:
-          HERMES_COMMIT: 9aa7530f7b53699e2c6d648ded8f6300503b3dc7
-        run: |
-          git init "$RUNNER_TEMP/hermes-agent"
-          git -C "$RUNNER_TEMP/hermes-agent" remote add origin https://github.com/NousResearch/hermes-agent.git
-          git -C "$RUNNER_TEMP/hermes-agent" fetch --depth 1 origin "$HERMES_COMMIT"
-          git -C "$RUNNER_TEMP/hermes-agent" checkout --detach FETCH_HEAD
-      - name: Install Hermes environment
-        run: uv sync --project "$RUNNER_TEMP/hermes-agent"
-      - name: Run live compatibility tests
-        env:
-          HERMES_AGENT_ROOT: ${{ runner.temp }}/hermes-agent
-          HERMES_PYTHON: ${{ runner.temp }}/hermes-agent/.venv/bin/python
-          HERMES_HOME: ${{ runner.temp }}/hermes-home
-        run: npm test
-      - run: python -m py_compile bridge/hermes_bridge.py
