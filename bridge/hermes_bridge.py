@@ -13,13 +13,145 @@ import argparse
 import contextlib
 import io
 import json
+import math
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tomllib
 import traceback
 from typing import Any, Dict, Iterable
+
+
+class SchemaValidationError(ValueError):
+    """One path-qualified validation failure in a Hermes tool schema."""
+
+
+def validate_json_schema(value: Any, schema: Any, path: str) -> None:
+    """Validate the practical JSON Schema subset emitted by Hermes tools.
+
+    Hermes does not declare jsonschema as a runtime dependency, so the bridge
+    keeps this dependency-free and fail-closed for the constraints its catalog
+    uses. Unknown annotation keywords remain non-validating by JSON Schema
+    design; structural and scalar validation keywords are enforced here.
+    """
+    if schema is True or schema == {}:
+        return
+    if schema is False or not isinstance(schema, dict):
+        raise SchemaValidationError(f"{path} is rejected by its schema")
+
+    if "allOf" in schema:
+        for branch in schema["allOf"]:
+            validate_json_schema(value, branch, path)
+    for keyword, exact in (("anyOf", False), ("oneOf", True)):
+        if keyword in schema:
+            successes = 0
+            for branch in schema[keyword]:
+                try:
+                    validate_json_schema(value, branch, path)
+                    successes += 1
+                except SchemaValidationError:
+                    pass
+            if successes == 0 or (exact and successes != 1):
+                expectation = "exactly one" if exact else "at least one"
+                raise SchemaValidationError(f"{path} must match {expectation} {keyword} branch")
+    if "not" in schema:
+        try:
+            validate_json_schema(value, schema["not"], path)
+        except SchemaValidationError:
+            pass
+        else:
+            raise SchemaValidationError(f"{path} matches a forbidden schema")
+
+    expected = schema.get("type")
+    if expected is not None:
+        accepted = expected if isinstance(expected, list) else [expected]
+        if not any(_matches_json_type(value, item) for item in accepted):
+            raise SchemaValidationError(f"{path} must have type {' or '.join(map(str, accepted))}")
+    if "const" in schema and value != schema["const"]:
+        raise SchemaValidationError(f"{path} must equal the declared constant")
+    if "enum" in schema and value not in schema["enum"]:
+        raise SchemaValidationError(f"{path} must be one of the declared enum values")
+
+    if isinstance(value, dict) and not isinstance(value, list):
+        required = schema.get("required") or []
+        missing = [name for name in required if name not in value]
+        if missing:
+            raise SchemaValidationError(f"{path} is missing required property {missing[0]!r}")
+        properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+        for name, item in value.items():
+            child_path = f"{path}.{name}"
+            if name in properties:
+                validate_json_schema(item, properties[name], child_path)
+                continue
+            additional = schema.get("additionalProperties", True)
+            if additional is False:
+                raise SchemaValidationError(f"{child_path} is not an allowed property")
+            if isinstance(additional, dict):
+                validate_json_schema(item, additional, child_path)
+        _check_size(value, schema, path, "Properties")
+        for dependency, names in (schema.get("dependentRequired") or {}).items():
+            if dependency in value:
+                for name in names:
+                    if name not in value:
+                        raise SchemaValidationError(f"{path} requires {name!r} when {dependency!r} is present")
+
+    if isinstance(value, list):
+        _check_size(value, schema, path, "Items")
+        if schema.get("uniqueItems"):
+            encoded = [json.dumps(item, sort_keys=True, ensure_ascii=False) for item in value]
+            if len(encoded) != len(set(encoded)):
+                raise SchemaValidationError(f"{path} must contain unique items")
+        prefix = schema.get("prefixItems") if isinstance(schema.get("prefixItems"), list) else []
+        for index, item in enumerate(value):
+            item_schema = prefix[index] if index < len(prefix) else schema.get("items", True)
+            validate_json_schema(item, item_schema, f"{path}[{index}]")
+
+    if isinstance(value, str):
+        _check_size(value, schema, path, "Length")
+        if "pattern" in schema and re.search(str(schema["pattern"]), value) is None:
+            raise SchemaValidationError(f"{path} does not match the required pattern")
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not math.isfinite(value):
+            raise SchemaValidationError(f"{path} must be a finite number")
+        for keyword, predicate in (
+            ("minimum", lambda current, limit: current >= limit),
+            ("maximum", lambda current, limit: current <= limit),
+            ("exclusiveMinimum", lambda current, limit: current > limit),
+            ("exclusiveMaximum", lambda current, limit: current < limit),
+        ):
+            if keyword in schema and not predicate(value, schema[keyword]):
+                raise SchemaValidationError(f"{path} violates {keyword}={schema[keyword]}")
+        if "multipleOf" in schema:
+            divisor = schema["multipleOf"]
+            if not isinstance(divisor, (int, float)) or divisor <= 0:
+                raise SchemaValidationError(f"{path} has an invalid multipleOf schema")
+            quotient = value / divisor
+            if not math.isclose(quotient, round(quotient), rel_tol=1e-9, abs_tol=1e-9):
+                raise SchemaValidationError(f"{path} must be a multiple of {divisor}")
+
+
+def _matches_json_type(value: Any, expected: Any) -> bool:
+    return {
+        "null": value is None,
+        "boolean": isinstance(value, bool),
+        "object": isinstance(value, dict),
+        "array": isinstance(value, list),
+        "string": isinstance(value, str),
+        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+        "integer": isinstance(value, int) and not isinstance(value, bool),
+    }.get(expected, False)
+
+
+def _check_size(value: Any, schema: Dict[str, Any], path: str, suffix: str) -> None:
+    minimum = schema.get(f"min{suffix}")
+    maximum = schema.get(f"max{suffix}")
+    if minimum is not None and len(value) < minimum:
+        raise SchemaValidationError(f"{path} has fewer than min{suffix}={minimum}")
+    if maximum is not None and len(value) > maximum:
+        raise SchemaValidationError(f"{path} has more than max{suffix}={maximum}")
 
 
 class HermesRuntime:
@@ -35,8 +167,6 @@ class HermesRuntime:
         os.environ["HERMES_HOME"] = str(self.hermes_home)
         sys.path.insert(0, str(self.agent_root))
 
-        from jsonschema import Draft202012Validator  # pylint: disable=import-outside-toplevel
-        from jsonschema.exceptions import ValidationError  # pylint: disable=import-outside-toplevel
         from model_tools import (  # pylint: disable=import-outside-toplevel
             get_tool_definitions,
             handle_function_call,
@@ -73,8 +203,6 @@ class HermesRuntime:
         from agent.learn_prompt import build_learn_prompt  # pylint: disable=import-outside-toplevel
         from agent.prompt_builder import SKILLS_GUIDANCE  # pylint: disable=import-outside-toplevel
 
-        self.json_schema_validator = Draft202012Validator
-        self.json_schema_validation_error = ValidationError
         self.get_tool_definitions = get_tool_definitions
         self.handle_function_call = handle_function_call
         self.registry = registry
@@ -283,10 +411,9 @@ class HermesRuntime:
             raise PermissionError(f"Hermes tool {name!r} is not enabled for this bridge")
         definition = next(item["function"] for item in definitions if item.get("function", {}).get("name") == name)
         try:
-            self.json_schema_validator(definition.get("parameters") or {}).validate(arguments)
-        except self.json_schema_validation_error as error:
-            location = ".".join(str(part) for part in error.absolute_path) or "<root>"
-            raise ValueError(f"invalid arguments for Hermes tool {name!r} at {location}: {error.message}") from error
+            validate_json_schema(arguments, definition.get("parameters") or {}, "<root>")
+        except SchemaValidationError as error:
+            raise ValueError(f"invalid arguments for Hermes tool {name!r}: {error}") from error
         result = self.handle_function_call(
             function_name=name,
             function_args=arguments,
