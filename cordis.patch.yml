@@ -1,0 +1,13 @@
+- insert:
+    - id: dsh/hermes-bridge
+      name: '@aalvsz/dsh-hermes-bridge'
+      config:
+        enabled: true
+        toolsets:
+          - all
+        mirrorTools: true
+        delegateAgent: true
+        requireApproval: true
+        syncSkills: false
+        backgroundReview: false
+        curator: false
