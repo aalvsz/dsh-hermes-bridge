@@ -28,4 +28,8 @@ jobs:
       - run: node --check src/index.js
       - run: node --check src/memory.js
       - run: node --check src/skills.js
+      - run: node --check src/trajectory.js
+      - run: node --check src/compressor.js
+      - run: node --check src/learn.js
+      - run: node --check src/options.js
       - run: npm run pack:check

@@ -2,10 +2,14 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { MemoryStore } from './memory.js';
 import { SkillCatalog } from './skills.js';
+import { TrajectoryRecorder } from './trajectory.js';
+import { TrajectoryCompressor, CompressionConfig } from './compressor.js';
 export { buildLearnPrompt } from './learn.js';
 export { resolveOptions } from './options.js';
 export { MemoryStore } from './memory.js';
 export { SkillCatalog } from './skills.js';
+export { TrajectoryRecorder } from './trajectory.js';
+export { TrajectoryCompressor, CompressionConfig } from './compressor.js';
 
 export const name = 'dsh/hermes-bridge';
 export const inject = ['tools', 'systemPrompt', 'commands', 'subagents', 'agents'];
@@ -22,6 +26,12 @@ export async function apply(ctx, config = {}) {
     userCharLimit: options.userCharLimit,
   });
   const catalog = new SkillCatalog({ root: options.skillsRoot });
+
+  const recorder = new TrajectoryRecorder({
+    root: options.memoryRoot,
+    model: options.model || 'dsh-agent',
+    enabled: options.saveTrajectories || false,
+  });
 
   const snapshots = new Map();
 
@@ -47,7 +57,10 @@ export async function apply(ctx, config = {}) {
   ctx.tools.register(createSkillListTool(catalog, options));
   ctx.tools.register(createSkillViewTool(catalog, options));
   ctx.tools.register(createSkillManageTool(catalog, options, ctx.logger));
-  ctx.tools.register(createStatusTool(options));
+  ctx.tools.register(createStatusTool(options, recorder));
+
+  ctx.tools.register(createTrajectorySaveTool(recorder, options));
+  ctx.tools.register(createTrajectoryCompressTool(options));
 
   installLearnCommand(ctx, options);
 
@@ -57,6 +70,23 @@ export async function apply(ctx, config = {}) {
   });
   ctx.on('agent/disposed', ({ agent }) => {
     snapshots.delete(String(agent?.id || 'default'));
+  });
+
+  // RL trajectory capture: on turn/end, save the conversation
+  ctx.on('session/event', (session, event) => {
+    if (event.type !== 'turn/end' || !recorder.enabled) return;
+    const agent = ctx.agents.get(session.id);
+    if (!agent || agent?.session?.header?.origin === 'subagent') return;
+    try {
+      const messages = session.messages || [];
+      const userQuery = messages[0]?.content || '';
+      const trajectory = recorder.convertToTrajectoryFormat(messages, userQuery);
+      recorder.save(trajectory, true).catch((err) =>
+        ctx.logger.warn(`Trajectory save failed: ${err.message}`),
+      );
+    } catch (err) {
+      ctx.logger.warn(`Trajectory capture error: ${err.message}`);
+    }
   });
 
   if (options.backgroundReview || options.curator) {
@@ -161,7 +191,7 @@ function createSkillManageTool(catalog, options, logger) {
   };
 }
 
-function createStatusTool(options) {
+function createStatusTool(options, recorder) {
   return {
     name: `${options.namespace}_status`,
     description: 'Inspect the Hermes adaptive intelligence surface.',
@@ -176,7 +206,62 @@ function createStatusTool(options) {
         sharedState: { memory: 'native', skills: 'native', backgroundReview: options.backgroundReview ? 'native' : 'disabled' },
         agentDelegation: 'native-dsh',
         hermesDependency: 'none',
+        rl: {
+          trajectoryCapture: recorder.enabled ? 'enabled' : 'disabled',
+          compression: 'available',
+        },
       };
+    },
+  };
+}
+
+function createTrajectorySaveTool(recorder, options) {
+  return {
+    name: `${options.namespace}_trajectory_save`,
+    description: 'Manually save a conversation trajectory for fine-tuning data. Accepts messages in OpenAI format and a user query.',
+    parameters: {
+      messages: { type: 'array', required: true },
+      user_query: { type: 'string', required: true },
+      completed: { type: 'boolean' },
+    },
+    output: {
+      schema: { type: 'json' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args) {
+      const trajectory = recorder.convertToTrajectoryFormat(args.messages, args.user_query);
+      await recorder.save(trajectory, args.completed !== false);
+      return { success: true, turns: trajectory.length };
+    },
+  };
+}
+
+function createTrajectoryCompressTool(options) {
+  return {
+    name: `${options.namespace}_trajectory_compress`,
+    description: 'Compress trajectory JSONL files to fit within a token budget for fine-tuning. Requires a summarize function provider.',
+    parameters: {
+      input_dir: { type: 'string', required: true },
+      output_dir: { type: 'string', required: true },
+      target_max_tokens: { type: 'number' },
+      summary_target_tokens: { type: 'number' },
+      protect_last_n_turns: { type: 'number' },
+    },
+    output: {
+      schema: { type: 'json' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args) {
+      const config = new CompressionConfig({
+        targetMaxTokens: args.target_max_tokens,
+        summaryTargetTokens: args.summary_target_tokens,
+        protectLastNTurns: args.protect_last_n_turns,
+      });
+      // No summarizeFn available in standalone tool context — compression
+      // will use the fallback summary if no LLM is configured.
+      const compressor = new TrajectoryCompressor(config);
+      const results = await compressor.processDirectory(args.input_dir, args.output_dir);
+      return { success: true, ...results };
     },
   };
 }

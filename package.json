@@ -1,6 +1,6 @@
 {
   "name": "@aalvsz/dsh-hermes-bridge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Native adaptive intelligence layer for DeepSeek Harness: memory, skills, /learn, background review, and curator — no Hermes or Python dependency.",
   "type": "module",
   "main": "./src/index.js",
@@ -10,7 +10,6 @@
   "files": [
     "src",
     "docs",
-    "cordis.patch.yml",
     "README.md",
     "LICENSE",
     "SECURITY.md"

@@ -19,6 +19,10 @@ export function resolveOptions(config = {}, runtime = {}) {
     memoryNudgeInterval: positiveInteger(config.memoryNudgeInterval, 10),
     skillNudgeInterval: positiveInteger(config.skillNudgeInterval, 10),
     operationTimeoutMs: positiveInteger(config.operationTimeoutMs, 120_000),
+    saveTrajectories: config.saveTrajectories === true,
+    model: config.model || null,
+    trajectoryTargetMaxTokens: positiveInteger(config.trajectoryTargetMaxTokens, 15250),
+    trajectorySummaryTargetTokens: positiveInteger(config.trajectorySummaryTargetTokens, 750),
   };
 }
 

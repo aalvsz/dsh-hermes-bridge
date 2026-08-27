@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 - 2026-08-27
+
+- RL trajectory capture: converts DSH conversation turns to ShareGPT format with execute/result/think XML tags.
+- Automatic trajectory save on turn/end when saveTrajectories: true.
+- Trajectory compression pipeline: protected region detection, boundary snapping, LLM summarization, token budget.
+- hermes_trajectory_save and hermes_trajectory_compress tools.
+- 9 new tests covering trajectory recording and compression (18 total, all passing).
+
 ## 0.2.0 - 2026-08-27
 
 - Native JavaScript reimplementation: no Hermes or Python dependency.
